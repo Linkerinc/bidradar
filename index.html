@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>입찰레이더 BidRadar — 안전보호구 입찰공고</title>
+<style>
+  :root{
+    --bg:#ffffff; --bg2:#f6f5f1; --line:#e4e2da;
+    --text:#22221f; --muted:#6b6a64; --hint:#9b9a93;
+    --info-bg:#e6f1fb; --info:#185fa5;
+    --ok-bg:#eaf3de; --ok:#3b6d11;
+    --warn-bg:#faeeda; --warn:#854f0b;
+    --danger-bg:#fcebeb; --danger:#a32d2d;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:16px;font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;background:transparent;color:var(--text);}
+  h1{font-size:19px;font-weight:600;margin:0;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+  .updated{font-size:12px;color:var(--muted);}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px;}
+  .stat{background:var(--bg2);border-radius:10px;padding:10px 14px;}
+  .stat .lbl{font-size:12px;color:var(--muted);}
+  .stat .num{font-size:23px;font-weight:600;margin-top:2px;}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  input,select,button{font-family:inherit;font-size:14px;height:38px;padding:0 12px;border:0.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);}
+  input{flex:1;min-width:160px;}
+  button{cursor:pointer;}
+  button:hover{background:var(--bg2);}
+  .card{background:var(--bg);border:0.5px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;}
+  .card .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}
+  .card .title{font-size:15px;font-weight:600;line-height:1.4;}
+  .card .meta{font-size:13px;color:var(--muted);margin-bottom:10px;}
+  .card .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+  .badge{font-size:12px;padding:3px 10px;border-radius:8px;white-space:nowrap;}
+  .pill{font-size:12px;padding:2px 9px;border-radius:8px;background:var(--info-bg);color:var(--info);}
+  .tag-new{font-size:11px;padding:2px 8px;border-radius:8px;background:var(--ok-bg);color:var(--ok);margin-left:6px;}
+  .empty{text-align:center;color:var(--muted);padding:32px;}
+  a.link{color:var(--info);text-decoration:none;font-size:13px;}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#26261f;--bg2:#2f2f27;--line:#3d3d33;--text:#e9e7dd;--muted:#a3a299;--hint:#7d7c74;
+      --info-bg:#0c447c;--info:#b5d4f4;--ok-bg:#27500a;--ok:#c0dd97;--warn-bg:#633806;--warn:#fac775;--danger-bg:#791f1f;--danger:#f7c1c1;}
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>입찰레이더 <span style="font-size:13px;font-weight:500;color:var(--muted);">BidRadar · 3M 전품목</span></h1>
+    <span class="updated" id="updated">불러오는 중…</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="lbl">전체 공고</div><div class="num" id="s-total">–</div></div>
+    <div class="stat"><div class="lbl">신규 (어제 대비)</div><div class="num" id="s-new" style="color:var(--ok)">–</div></div>
+    <div class="stat"><div class="lbl">마감 임박 (3일)</div><div class="num" id="s-urgent" style="color:var(--danger)">–</div></div>
+  </div>
+
+  <div class="filters">
+    <input type="text" id="q" placeholder="공고명·발주기관 검색" oninput="render()">
+    <select id="cat" onchange="render()">
+      <option value="all">전체 카테고리</option>
+      <option>호흡보호구</option><option>추락방지</option>
+      <option value="보호장갑">보호장갑</option>
+      <option>청력보호구</option><option>보안경</option>
+      <option>연마재</option><option>접착제</option><option>테이프</option>
+    </select>
+    <select id="region" onchange="render()">
+      <option value="all">전체 지역</option>
+      <option>서울</option><option>경기</option><option>인천</option><option>부산</option>
+      <option>대전</option><option>기타</option>
+    </select>
+    <select id="sort" onchange="render()">
+      <option value="deadline">마감 임박순</option>
+      <option value="amount">금액 높은순</option>
+      <option value="new">신규순</option>
+    </select>
+  </div>
+
+  <div id="list"></div>
+
+<script>
+// ===== 설정 =====
+// Worker 배포 후 아래 URL을 본인 Worker 주소로 바꾸세요.
+const WORKER_URL = "https://bidradar.YOUR-SUBDOMAIN.workers.dev";
+
+// Worker 미배포 시 화면 확인용 샘플
+const SAMPLE = {
+  updatedAt: new Date().toISOString(),
+  items: [
+    {id:"20260528-001",title:"환경공단 방진마스크 외 2종 구매",org:"한국환경공단",region:"인천",cat:"호흡보호구",amount:48000000,deadline:1,isNew:true,products:["8977K","9505"],link:"https://www.g2b.go.kr"},
+    {id:"20260527-114",title:"고속도로 작업자 안전대(추락방지) 일괄구매",org:"한국도로공사",region:"경기",cat:"추락방지",amount:122000000,deadline:2,isNew:true,products:["P50","ExoFit"],link:"https://www.g2b.go.kr"},
+    {id:"20260527-088",title:"조선소 절단방지장갑 정기 납품",org:"부산항만공사",region:"부산",cat:"보호장갑",amount:31500000,deadline:5,isNew:true,products:["SuperGrip NoCut 5"],link:"https://www.g2b.go.kr"},
+    {id:"20260526-203",title:"시설관리 전동식 호흡보호구(PAPR) 구입",org:"서울시설공단",region:"서울",cat:"호흡보호구",amount:67000000,deadline:3,isNew:false,products:["TR-619","TR-819"],link:"https://www.g2b.go.kr"},
+    {id:"20260525-077",title:"용접작업 보안경·차광 고글 구매",org:"한국가스공사",region:"기타",cat:"보안경",amount:14200000,deadline:9,isNew:false,products:["GG3000"],link:"https://www.g2b.go.kr"},
+    {id:"20260525-041",title:"방독마스크 정화통 세트 구매",org:"경기도청",region:"경기",cat:"호흡보호구",amount:23800000,deadline:6,isNew:false,products:["6200","6003"],link:"https://www.g2b.go.kr"},
+    {id:"20260528-220",title:"금속가공 플랩디스크 외 연마재 구매",org:"한국조폐공사",region:"대전",cat:"연마재",amount:18500000,deadline:4,isNew:true,products:["Cubitron 3 1169F"],link:"https://www.g2b.go.kr"},
+    {id:"20260527-061",title:"차량정비소 구조용 에폭시 접착제 구매",org:"서울교통공사",region:"서울",cat:"접착제",amount:9700000,deadline:8,isNew:false,products:["DP8507NS","Scotch-Weld"],link:"https://www.g2b.go.kr"},
+    {id:"20260526-188",title:"건축자재 고강도 양면테이프(VHB) 구입",org:"LH 한국토지주택공사",region:"경기",cat:"테이프",amount:12300000,deadline:10,isNew:false,products:["VHB"],link:"https://www.g2b.go.kr"}
+  ]
+};
+
+let DATA = [];
+
+function won(n){return (n||0).toLocaleString('ko-KR')+"원";}
+function dBadge(d){
+  if(d==null) return '<span class="badge" style="background:var(--bg2);color:var(--muted)">마감미정</span>';
+  let bg,fg;
+  if(d<=3){bg="var(--danger-bg)";fg="var(--danger)";return '<span class="badge" style="background:'+bg+';color:'+fg+'">D-'+d+' 임박</span>';}
+  if(d<=7){bg="var(--warn-bg)";fg="var(--warn)";}
+  else {bg="var(--bg2)";fg="var(--muted)";}
+  return '<span class="badge" style="background:'+bg+';color:'+fg+'">D-'+d+'</span>';
+}
+
+function render(){
+  const q=document.getElementById('q').value.trim();
+  const cat=document.getElementById('cat').value;
+  const region=document.getElementById('region').value;
+  const sort=document.getElementById('sort').value;
+  let rows=DATA.filter(r=>{
+    if(cat!=='all'&&r.cat!==cat)return false;
+    if(region!=='all'&&r.region!==region)return false;
+    if(q&&!((r.title||'').includes(q)||(r.org||'').includes(q)))return false;
+    return true;
+  });
+  const dl=x=>x.deadline==null?9999:x.deadline;
+  if(sort==='deadline')rows.sort((a,b)=>dl(a)-dl(b));
+  else if(sort==='amount')rows.sort((a,b)=>b.amount-a.amount);
+  else rows.sort((a,b)=>(b.isNew?1:0)-(a.isNew?1:0));
+
+  document.getElementById('s-total').textContent=rows.length;
+  document.getElementById('s-new').textContent=rows.filter(r=>r.isNew).length;
+  document.getElementById('s-urgent').textContent=rows.filter(r=>r.deadline!=null&&r.deadline<=3).length;
+
+  const list=document.getElementById('list');
+  if(!rows.length){list.innerHTML='<div class="empty">조건에 맞는 공고가 없습니다.</div>';return;}
+  list.innerHTML=rows.map(r=>{
+    const nt=r.isNew?'<span class="tag-new">NEW</span>':'';
+    const ps=(r.products||[]).map(p=>'<span class="pill">'+p+'</span>').join(' ')||'<span style="font-size:12px;color:var(--hint)">매칭 없음</span>';
+    return '<div class="card">'
+      +'<div class="head"><div class="title">'+r.title+nt+'</div>'+dBadge(r.deadline)+'</div>'
+      +'<div class="meta">'+r.org+' · '+r.region+' · '+won(r.amount)+'</div>'
+      +'<div class="foot">'
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span style="font-size:12px;color:var(--hint)">매칭 3M:</span>'+ps+'</div>'
+        +'<a class="link" href="'+(r.link||'#')+'" target="_blank" rel="noopener">공고 원문 ↗</a>'
+      +'</div></div>';
+  }).join('');
+}
+
+async function load(){
+  try{
+    const res=await fetch(WORKER_URL,{cache:"no-store"});
+    if(!res.ok) throw new Error();
+    const json=await res.json();
+    if(!json.items||!json.items.length) throw new Error();
+    DATA=json.items;
+    document.getElementById('updated').textContent="갱신: "+new Date(json.updatedAt).toLocaleString('ko-KR');
+  }catch(e){
+    DATA=SAMPLE.items;
+    document.getElementById('updated').textContent="샘플 데이터 (Worker 미연결)";
+  }
+  render();
+}
+load();
+</script>
+</body>
+</html>
