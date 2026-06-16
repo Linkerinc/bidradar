@@ -38,6 +38,13 @@
   .tag-new{font-size:11px;padding:2px 8px;border-radius:8px;background:var(--ok-bg);color:var(--ok);margin-left:6px;}
   .empty{text-align:center;color:var(--muted);padding:32px;}
   a.link{color:var(--info);text-decoration:none;font-size:13px;}
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line);}
+  .tab{padding:9px 18px;font-size:14px;font-weight:500;color:var(--muted);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;font-family:inherit;}
+  .tab:hover{color:var(--text);}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .tab .badge-count{display:inline-block;background:var(--bg2);color:var(--muted);font-size:11px;padding:1px 7px;border-radius:8px;margin-left:6px;}
+  .tab.active .badge-count{background:var(--accent);color:#fff;}
+  .scope-note{font-size:12px;color:var(--muted);padding:8px 0 14px;}
   @media (prefers-color-scheme:dark){
     :root{--bg:#26261f;--bg2:#2f2f27;--line:#3d3d33;--text:#e9e7dd;--muted:#a3a299;--hint:#7d7c74;
       --accent:#7fb4ee;
@@ -50,6 +57,12 @@
     <h1>입찰레이더 <span style="font-size:13px;font-weight:500;color:var(--muted);">BidRadar · 3M 전품목</span></h1>
     <span class="updated" id="updated">불러오는 중…</span>
   </div>
+
+  <div class="tabs">
+    <button class="tab active" id="tab-latest" onclick="switchScope('latest')">이번 주 공고<span class="badge-count" id="bc-latest">–</span></button>
+    <button class="tab" id="tab-lastyear" onclick="switchScope('lastyear')">작년 이 시기<span class="badge-count" id="bc-lastyear">–</span></button>
+  </div>
+  <div class="scope-note" id="scope-note"></div>
 
   <div class="stats">
     <div class="stat"><div class="lbl">전체 공고</div><div class="num" id="s-total">–</div></div>
@@ -159,19 +172,68 @@ function render(){
   }).join('');
 }
 
-async function load(){
+// scope: 'latest' (이번 주) | 'lastyear' (작년 이 시기)
+let CURRENT_SCOPE = 'latest';
+const STORE = { latest: null, lastyear: null }; // 두 스코프 데이터 캐시
+
+async function fetchScope(scope){
   try{
-    const res=await fetch(WORKER_URL,{cache:"no-store"});
+    const url = scope === 'lastyear' ? WORKER_URL + "?scope=lastyear" : WORKER_URL;
+    const res = await fetch(url, { cache:"no-store" });
     if(!res.ok) throw new Error();
-    const json=await res.json();
-    if(!json.items||!json.items.length) throw new Error();
-    DATA=json.items;
-    document.getElementById('updated').textContent="갱신: "+new Date(json.updatedAt).toLocaleString('ko-KR');
+    const json = await res.json();
+    return json;
   }catch(e){
-    DATA=SAMPLE.items;
-    document.getElementById('updated').textContent="샘플 데이터 (Worker 미연결)";
+    return null;
+  }
+}
+
+function applyScope(){
+  const json = STORE[CURRENT_SCOPE];
+  if (json && json.items && json.items.length){
+    DATA = json.items;
+    if (CURRENT_SCOPE === 'latest') {
+      document.getElementById('updated').textContent = "갱신: " + new Date(json.updatedAt).toLocaleString('ko-KR');
+      document.getElementById('scope-note').textContent = "";
+    } else {
+      const start = new Date(); start.setFullYear(start.getFullYear()-1);
+      const end = new Date(start); end.setDate(end.getDate()+30);
+      const fmt = d => d.toLocaleDateString('ko-KR');
+      document.getElementById('updated').textContent = "갱신: " + new Date(json.updatedAt).toLocaleString('ko-KR');
+      document.getElementById('scope-note').textContent = `※ 작년 같은 시기(${fmt(start)} ~ ${fmt(end)}) 공고입니다. 매년 비슷한 시기에 발주되는 공고를 미리 파악하는 용도예요. 원문 링크는 만료됐을 수 있습니다.`;
+    }
+  } else {
+    DATA = [];
+    document.getElementById('scope-note').textContent = CURRENT_SCOPE === 'lastyear'
+      ? "작년 같은 시기 데이터가 아직 없습니다. 잠시 후 다시 시도해주세요."
+      : "";
   }
   render();
+}
+
+function switchScope(scope){
+  CURRENT_SCOPE = scope;
+  document.getElementById('tab-latest').classList.toggle('active', scope==='latest');
+  document.getElementById('tab-lastyear').classList.toggle('active', scope==='lastyear');
+  applyScope();
+}
+
+async function load(){
+  // 두 스코프 동시 호출 (탭 전환 즉시 응답 위해)
+  const [a, b] = await Promise.all([ fetchScope('latest'), fetchScope('lastyear') ]);
+  STORE.latest = a;
+  STORE.lastyear = b;
+  document.getElementById('bc-latest').textContent = (a && a.items) ? a.items.length : 0;
+  document.getElementById('bc-lastyear').textContent = (b && b.items) ? b.items.length : 0;
+
+  // 둘 다 비어있으면 샘플 폴백 (latest 탭)
+  if ((!a || !a.items || !a.items.length) && (!b || !b.items || !b.items.length)){
+    DATA = SAMPLE.items;
+    document.getElementById('updated').textContent = "샘플 데이터 (Worker 미연결)";
+    render();
+    return;
+  }
+  applyScope();
 }
 load();
 </script>
